@@ -8,8 +8,11 @@ from dataclasses import dataclass, field
 from typing import Optional
 from dotenv import load_dotenv
 
+from .logging import get_logger
+
 # Charger les variables d'environnement
 load_dotenv()
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -156,23 +159,29 @@ class GeminiConfig:
     @classmethod
     def from_env(cls) -> 'GeminiConfig':
         """Initialise la configuration Gemini depuis les variables d'environnement."""
+        logger.info("Configuration de Gemini...")
         api_key = os.getenv('GOOGLE_API_KEY')
         
         if not api_key:
+            logger.warning("Clé API Gemini (GOOGLE_API_KEY) non trouvée. Service désactivé.")
             return cls(enabled=False)
+        
+        logger.info("Clé API Gemini trouvée.")
         
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
+            logger.info("Service Gemini configuré et activé avec succès.")
             return cls(
                 api_key=api_key,
                 enabled=True,
                 client=genai
             )
         except ImportError:
+            logger.warning("Le package 'google.generativeai' n'est pas installé. Gemini est désactivé.")
             return cls(api_key=api_key, enabled=False)
         except Exception as e:
-            print(f"[WARN] Impossible de configurer Gemini: {e}")
+            logger.error(f"Impossible de configurer Gemini: {e}. Service désactivé.")
             return cls(api_key=api_key, enabled=False)
 
 
@@ -180,17 +189,20 @@ class GeminiConfig:
 class ClaudeConfig:
     """Configuration pour l'API Claude (Anthropic)."""
     api_key: Optional[str] = None
-    model_name: str = "claude-sonnet-4-5-20250929"
+    model_name: str = "claude-3-sonnet-20240229"
     enabled: bool = False
     
     @classmethod
     def from_env(cls) -> 'ClaudeConfig':
         """Initialise la configuration Claude depuis les variables d'environnement."""
+        logger.info("Configuration de Claude...")
         api_key = os.getenv('CLAUDE_API_KEY')
         
         if not api_key:
+            logger.warning("Clé API Claude (CLAUDE_API_KEY) non trouvée. Service désactivé.")
             return cls(enabled=False)
         
+        logger.info("Clé API Claude trouvée. Service activé.")
         return cls(api_key=api_key, enabled=True)
 
 

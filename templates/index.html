@@ -396,6 +396,7 @@
           </div>
 
           <h1>Agent de Développement</h1>
+          
           <form id="prompt-form">
             <div class="form-group">
               <label for="prompt-text">Votre demande :</label>
@@ -543,16 +544,9 @@
         toggleBtn.addEventListener('click', () => {
             const isCollapsed = appLayout.classList.toggle('sidebar-collapsed');
             toggleBtn.innerHTML = isCollapsed ? '»' : '«';
-            localStorage.setItem('sidebarState', isCollapsed ? 'collapsed' : 'expanded');
         });
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const savedState = localStorage.getItem('sidebarState');
-            if (savedState === 'collapsed') {
-                appLayout.classList.add('sidebar-collapsed');
-                toggleBtn.innerHTML = '»';
-            }
-        });
+
 
         // --- Logique de l'API ---
         const promptForm = document.getElementById('prompt-form');

@@ -94,6 +94,7 @@ class WorkspaceService:
         else:
             raise Exception(f"Le projet Vue n\'a pas été créé dans {temp_project_path}")
         
+        self._create_vite_config()
         self.npm.install(dev_path)
         self.npm.install_tailwind_vue(dev_path)
         logger.info("Projet Vue créé avec succès")
@@ -106,6 +107,8 @@ class WorkspaceService:
         if result.failed:
             raise Exception(f"Création du projet React échouée: {result.stderr}")
         
+        self._create_vite_config()
+        
         result = self.npm.install(dev_path)
         if result.failed:
             raise Exception(f"Installation des dépendances échouée: {result.stderr}")
@@ -113,6 +116,45 @@ class WorkspaceService:
         result = self.npm.install_tailwind_react(dev_path)
         if result.failed:
             raise Exception(f"Installation de Tailwind échouée: {result.stderr}")
+
+    def _create_vite_config(self):
+        """Crée un fichier vite.config.js avec un proxy vers le backend."""
+        config = get_config()
+        dev_path = Path(config.paths.dev_path)
+        vite_config_path = dev_path / 'vite.config.js'
+        backend_port = config.servers.backend_port
+
+        # Déterminer le plugin à utiliser (vue ou react)
+        plugin_import = "import vue from '@vitejs/plugin-vue';" if config.project.frontend_framework == 'vue' else "import react from '@vitejs/plugin-react';"
+        plugin_call = "vue()" if config.project.frontend_framework == 'vue' else "react()"
+
+        vite_config_content = f"""
+import {{ defineConfig }} from 'vite';
+{plugin_import}
+
+// https://vitejs.dev/config/
+export default defineConfig({{
+  plugins: [
+    {plugin_call}
+  ],
+  server: {{
+    proxy: {{
+      '/api': {{
+        target: 'http://127.0.0.1:{backend_port}',
+        changeOrigin: true,
+        secure: false,
+      }},
+    }},
+  }},
+}});
+"""
+        try:
+            vite_config_path.write_text(vite_config_content, encoding='utf-8')
+            logger.info(f"vite.config.js créé avec proxy vers le port {backend_port}")
+        except IOError as e:
+            logger.error(f"Impossible d'écrire vite.config.js: {e}")
+            raise
+
 
     def _setup_backend_workspace(self):
         """Configure le workspace backend."""

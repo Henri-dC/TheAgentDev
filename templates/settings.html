@@ -97,11 +97,8 @@
               >
                 Changer de projet
               </button>
-              <button type="submit" class="btn btn-secondary">
-                Enregistrer
-              </button>
-              <button type="button" id="start-dev-btn" class="btn btn-primary">
-                Lancer le développement
+              <button type="submit" id="start-dev-btn" class="btn btn-primary">
+                Enregistrer et Lancer
               </button>
             </div>
           </form>
@@ -206,27 +203,53 @@
       openModalBtn.addEventListener("click", () => toggleModal(true));
       closeModalBtn.addEventListener("click", () => toggleModal(false));
       saveModalBtn.addEventListener("click", () => {
-        document.querySelector('#settings-form button[type="submit"]').click();
+        // Sauvegarde les données de la modale dans le formulaire principal
+        // La soumission réelle se fera via le bouton principal
         toggleModal(false);
       });
 
       // --- Logique du formulaire principal ---
       const settingsForm = document.getElementById("settings-form");
-      const startDevBtn = document.getElementById("start-dev-btn");
       const statusOutput = document.getElementById("status-output");
       const statusContainer = document.getElementById("status-container");
+
+      async function startProject() {
+        statusContainer.style.display = "block";
+        statusOutput.textContent =
+          "Initialisation de l'environnement de développement...\nCela peut prendre quelques minutes...";
+
+        try {
+          const response = await fetch("/api/start_project", {
+            method: "POST",
+          });
+          const result = await response.json();
+          statusOutput.textContent += response.ok
+            ? "\nEnvironnement prêt ! Redirection..."
+            : `\nErreur: ${result.message}`;
+          if (response.ok && result.redirect_url) {
+            setTimeout(() => (window.location.href = result.redirect_url), 2000);
+          }
+        } catch (error) {
+          statusOutput.textContent += `\nErreur de connexion: ${error}`;
+        }
+      }
 
       settingsForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const formData = new FormData(settingsForm);
         const settings = {};
+        
+        // Collecter les données du formulaire principal
         for (let [key, value] of formData.entries()) {
           settings[key.replace(/-/g, "_")] = value;
         }
 
+        // Collecter les données de la modale WordPress
         wpFields.forEach((field) => {
-          settings[field.id.replace(/-/g, "_").toUpperCase()] =
-            document.getElementById(field.id).value;
+          const input = document.getElementById(field.id);
+          if(input) {
+             settings[field.id.replace(/-/g, "_").toUpperCase()] = input.value;
+          }
         });
 
         settings.wordpress_api_enabled = document.getElementById(
@@ -235,35 +258,23 @@
         settings.enable_database =
           document.getElementById("enable-database").checked;
 
-        const response = await fetch("/api/save_settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(settings),
-        });
-        alert(
-          response.ok
-            ? "Paramètres enregistrés."
-            : "Erreur lors de l'enregistrement."
-        );
-      });
-
-      startDevBtn.addEventListener("click", async () => {
-        statusContainer.style.display = "block";
-        statusOutput.textContent =
-          "Initialisation de l'environnement de développement...\nCela peut prendre quelques minutes...";
-
         try {
-          const response = await fetch("/api/setup_and_start", {
-            method: "POST",
-          });
-          const result = await response.json();
-          statusOutput.textContent += response.ok
-            ? "\nEnvironnement prêt ! Redirection..."
-            : `\nErreur: ${result.message}`;
-          if (response.ok)
-            setTimeout(() => (window.location.href = "/main"), 2000);
+            const response = await fetch("/api/save_settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(settings),
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.next_action === 'start_project') {
+                // Si la sauvegarde réussit, démarrer le projet
+                await startProject();
+            } else {
+                alert(result.message || "Erreur lors de l'enregistrement.");
+            }
         } catch (error) {
-          statusOutput.textContent += `\nErreur de connexion: ${error}`;
+            alert(`Erreur de connexion: ${error}`);
         }
       });
 

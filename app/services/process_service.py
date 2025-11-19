@@ -62,17 +62,13 @@ class ProcessService:
             # CREATE_NEW_PROCESS_GROUP est conservé pour que l'arrêt via _terminate_process fonctionne.
             creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NEW_CONSOLE
             
-            # --- Ligne de test temporaire ---
-            test_command = 'cmd.exe /c "echo Testing new console... && pause"'
-            logger.info(f"--- DIAGNOSTIC: Forcing test command: {test_command} ---")
-            
             proc = subprocess.Popen(
-                test_command, # Remplacer `command` par `test_command`
+                command,
                 cwd=cwd_str,
                 shell=True,
                 creationflags=creation_flags
             )
-            logger.info(f"Processus de test démarré: PID={proc.pid}, cmd='{test_command}'")
+            logger.info(f"Processus démarré: PID={proc.pid}, cmd='{command}'")
         
         else:  # Unix/Linux
             # Comportement existant pour les autres OS : redirection vers les logs.

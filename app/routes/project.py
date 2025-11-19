@@ -44,60 +44,43 @@ def reset_project():
     return redirect(url_for('project.project_selection'))
 
 
-def _setup_and_start_project(project_name):
-    """Met à jour la configuration, initialise et démarre un projet."""
-    project_path = os.path.join(BASE_PROJECT_PATH, project_name).replace('\\\\', '/')
-    
-    # Mettre à jour la configuration
-    with open(CONFIG_PATH, 'r+') as f:
-        config = json.load(f)
-        config['dev_path'] = f"{project_path}/dev"
-        config['prod_path'] = f"{project_path}/prod"
-        config['backend_dev_path'] = f"{project_path}/backend_dev"
-        f.seek(0)
-        json.dump(config, f, indent=4)
-        f.truncate()
-    
-    reload_config()
-    
-    # Initialiser le service ChromaDB avec le nom du projet
-    from app.services.chroma_service import init_chroma_service
-    init_chroma_service(project_name)
 
-    # Initialiser et démarrer l'environnement
-    from config.settings import get_config
-    app_config = get_config()
-    
-    _workspace_service.setup_all()
-    _process_service.start_dev_server(
-        app_config.paths.dev_path,
-        app_config.servers.dev_port
-    )
-    _process_service.start_backend_server(
-        app_config.paths.backend_dev_path,
-        app_config.servers.backend_port
-    )
 
 @project_bp.route('/select-project', methods=['POST'])
 def select_project():
-    """Met à jour la configuration, initialise et démarre le projet sélectionné."""
+    """Met à jour la configuration et redirige vers les paramètres."""
     project_name = request.form.get('project_name')
     if not project_name:
         flash('Veuillez sélectionner un projet.', 'error')
         return redirect(url_for('project.project_selection'))
 
     try:
-        _setup_and_start_project(project_name)
-        flash(f"Projet '{project_name}' démarré.", 'success')
-        return redirect(url_for('api.main_page'))
+        # Mettre à jour la configuration sans démarrer
+        project_path = os.path.join(BASE_PROJECT_PATH, project_name).replace('\\\\', '/')
+        with open(CONFIG_PATH, 'r+') as f:
+            config = json.load(f)
+            config['dev_path'] = f"{project_path}/dev"
+            config['prod_path'] = f"{project_path}/prod"
+            config['backend_dev_path'] = f"{project_path}/backend_dev"
+            f.seek(0)
+            json.dump(config, f, indent=4)
+            f.truncate()
+        
+        reload_config()
+        
+        # Initialiser le service ChromaDB avec le nom du projet
+        from app.services.chroma_service import init_chroma_service
+        init_chroma_service(project_name)
+
+        return redirect(url_for('settings.settings_page'))
 
     except Exception as e:
-        flash(f"Erreur lors du démarrage du projet : {e}", 'error')
+        flash(f"Erreur lors de la sélection du projet : {e}", 'error')
         return redirect(url_for('project.project_selection'))
 
 @project_bp.route('/create-project', methods=['POST'])
 def create_project():
-    """Crée un nouveau projet et met à jour la configuration."""
+    """Crée un nouveau projet et redirige vers les paramètres."""
     project_name = request.form.get('new_project_name')
     if not project_name or not project_name.strip():
         flash('Le nom du projet ne peut pas être vide.', 'error')
@@ -115,10 +98,24 @@ def create_project():
         os.makedirs(f"{project_path}/prod")
         os.makedirs(f"{project_path}/backend_dev")
         
-        _setup_and_start_project(project_name)
+        # Mettre à jour la configuration sans démarrer
+        with open(CONFIG_PATH, 'r+') as f:
+            config = json.load(f)
+            config['dev_path'] = f"{project_path}/dev"
+            config['prod_path'] = f"{project_path}/prod"
+            config['backend_dev_path'] = f"{project_path}/backend_dev"
+            f.seek(0)
+            json.dump(config, f, indent=4)
+            f.truncate()
         
-        flash(f"Projet '{project_name}' créé et démarré avec succès.", 'success')
-        return redirect(url_for('api.main_page'))
+        reload_config()
+
+        # Initialiser le service ChromaDB avec le nom du projet
+        from app.services.chroma_service import init_chroma_service
+        init_chroma_service(project_name)
+        
+        flash(f"Projet '{project_name}' créé. Veuillez configurer les paramètres.", 'success')
+        return redirect(url_for('settings.settings_page'))
         
     except (IOError, OSError, json.JSONDecodeError) as e:
         flash(f"Erreur lors de la création du projet : {e}", 'error')

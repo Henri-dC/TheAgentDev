@@ -10,6 +10,17 @@ logger = get_logger(__name__)
 
 settings_bp = Blueprint('settings', __name__)
 
+process_svc = None
+workspace_svc = None
+
+def init_services(process_service, workspace_service):
+    """
+    Initialise les services pour ce blueprint.
+    """
+    global process_svc, workspace_svc
+    process_svc = process_service
+    workspace_svc = workspace_service
+
 
 @settings_bp.route('/settings')
 def settings_page():
@@ -57,92 +68,88 @@ def get_settings():
 @settings_bp.route('/api/save_settings', methods=['POST'])
 def save_settings():
     """
-    Sauvegarde les paramètres du projet.
-    
-    Expected JSON body:
-        - frontend_framework: str
-        - repository_url: str
-        - wordpress_api_enabled: bool
-        - enable_database: bool
-        - database_url: str (optionnel)
-        - WP_API_URL, WOO_API_URL, etc. (optionnel, pour WordPress)
-    
-    Returns:
-        JSON avec status et message
+    Sauvegarde les paramètres du projet et prépare le démarrage.
     """
     try:
         new_settings = request.json
-        
         if not new_settings:
-            return jsonify({
-                'status': 'error',
-                'message': 'Aucune donnée fournie'
-            }), 400
-        
-        logger.debug(f"Valeur de frontend_framework reçue: {new_settings.get('frontend_framework')}")
+            return jsonify({'status': 'error', 'message': 'Aucune donnée fournie'}), 400
         
         config = get_config()
         
-        # Mettre à jour les champs fournis
+        # Mettre à jour la configuration
         if 'frontend_framework' in new_settings:
             config.project.frontend_framework = new_settings['frontend_framework']
-            logger.debug(f"Valeur de frontend_framework après mise à jour: {config.project.frontend_framework}")
-        
         if 'repository_url' in new_settings:
             config.project.repository_url = new_settings['repository_url']
-        
         if 'wordpress_api_enabled' in new_settings:
             config.project.wordpress_api_enabled = new_settings['wordpress_api_enabled']
-        
         if 'enable_database' in new_settings:
             config.project.enable_database = new_settings['enable_database']
-        
         if 'database_url' in new_settings:
             config.project.database_url = new_settings['database_url']
-        
         if 'branch_name' in new_settings:
             config.project.branch_name = new_settings['branch_name']
-        
-        # Extraire les variables WordPress
+            
         wordpress_keys = [
-            'WP_API_URL', 'WOO_API_URL', 'WOO_CONSUMER_KEY', 
-            'WOO_CONSUMER_SECRET', 'WP_USERNAME', 'WP_PASSWORD',
-            'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'JWT_SECRET',
-            'MAILJET_API_KEY', 'MAILJET_SECRET_KEY', 'MAIL_FROM',
+            'WP_API_URL', 'WOO_API_URL', 'WOO_CONSUMER_KEY', 'WOO_CONSUMER_SECRET', 
+            'WP_USERNAME', 'WP_PASSWORD', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 
+            'JWT_SECRET', 'MAILJET_API_KEY', 'MAILJET_SECRET_KEY', 'MAIL_FROM', 
             'MAIL_TO_ADMIN', 'INSTAGRAM_ACCESS_TOKEN', 'RECAPTCHA_SECRET_KEY'
         ]
-        
-        wordpress_env = {}
-        for key in wordpress_keys:
-            if key in new_settings:
-                wordpress_env[key] = new_settings.get(key, '')
+        wordpress_env = {key: new_settings.get(key, '') for key in wordpress_keys if key in new_settings}
         
         if wordpress_env:
             config.project.wordpress_env = wordpress_env
-            
-            # Écrire le fichier .env du backend si WordPress activé
             if config.project.wordpress_api_enabled:
                 _write_backend_env_file(config, wordpress_env)
         
-        # Sauvegarder dans project_config.json
         config.project.save_to_file(config.paths.config_path)
-        
-        # Recharger la configuration
         reload_config()
         
-        logger.info("Paramètres sauvegardés avec succès")
+        logger.info("Paramètres sauvegardés, prêt à démarrer le projet.")
         
         return jsonify({
             'status': 'ok',
-            'message': 'Paramètres enregistrés avec succès.'
+            'message': 'Paramètres enregistrés. Prêt à démarrer le projet.',
+            'next_action': 'start_project'
         })
     
     except Exception as e:
         logger.exception("Erreur lors de la sauvegarde des paramètres")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@settings_bp.route('/api/start_project', methods=['POST'])
+def start_project():
+    """
+    Démarre l'environnement de développement après configuration.
+    """
+    try:
+        app_config = get_config()
+        
+        # Configurer et démarrer les services
+        workspace_svc.setup_all()
+        process_svc.start_dev_server(
+            app_config.paths.dev_path,
+            app_config.servers.dev_port
+        )
+        process_svc.start_backend_server(
+            app_config.paths.backend_dev_path,
+            app_config.servers.backend_port
+        )
+        
+        logger.info("Serveurs de développement démarrés avec succès.")
+        
         return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+            'status': 'ok',
+            'message': 'Projet démarré avec succès.',
+            'redirect_url': '/main'
+        })
+
+    except Exception as e:
+        logger.exception("Erreur lors du démarrage du projet")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 
 def _write_backend_env_file(config, wordpress_env: dict):

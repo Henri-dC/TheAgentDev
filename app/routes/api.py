@@ -58,8 +58,8 @@ def clear_history():
 
 @api_bp.route('/')
 def index():
-    """Page d'accueil (redirige vers settings)."""
-    return render_template('settings.html')
+    """Page d'accueil (redirige vers la page principale de l'IDE)."""
+    return redirect(url_for('api.main_page'))
 
 
 @api_bp.route('/main')
@@ -67,7 +67,14 @@ def main_page():
     """Affiche la page principale de l'application (IDE)."""
     config = get_config()
     project_name = Path(config.paths.dev_path).parent.name
-    return render_template('index.html', project_name=project_name)
+    
+    # Déterminer quels services d'IA sont actifs
+    ai_services = {
+        'gemini_enabled': config.gemini.enabled and _gemini_service.is_available(),
+        'claude_enabled': config.claude.enabled and _claude_service.is_available()
+    }
+    
+    return render_template('index.html', project_name=project_name, ai_services=ai_services)
 
 
 from app.services.chroma_service import get_chroma_service

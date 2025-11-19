@@ -4,7 +4,7 @@ Package des routes Flask.
 from flask import Flask
 
 from app.routes.api import api_bp, init_services as init_api_services
-from app.routes.settings import settings_bp
+from app.routes.settings import settings_bp, init_services as init_settings_services
 from app.routes.preview import preview_bp
 from app.routes.project import project_bp, init_services as init_project_services
 
@@ -45,4 +45,8 @@ def inject_services(
     init_project_services(
         workspace_svc=workspace_svc, 
         process_svc=process_svc
+    )
+    init_settings_services(
+        process_service=process_svc,
+        workspace_service=workspace_svc
     )

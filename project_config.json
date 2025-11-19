@@ -1,8 +1,8 @@
 {
     "repository_url": "https://github.com/Henri-dC/Agent-dev-test.git",
-    "dev_path": "C:/Users/PC/VSC Dosss/Agent dev/Retour/dev",
-    "prod_path": "C:/Users/PC/VSC Dosss/Agent dev/Retour/prod",
-    "backend_dev_path": "C:/Users/PC/VSC Dosss/Agent dev/Retour/backend_dev",
+    "dev_path": "C:/Users/PC/VSC Dosss/Agent dev/wesh23/dev",
+    "prod_path": "C:/Users/PC/VSC Dosss/Agent dev/wesh23/prod",
+    "backend_dev_path": "C:/Users/PC/VSC Dosss/Agent dev/wesh23/backend_dev",
     "frontend_framework": "vue",
     "branch_name": "main",
     "wordpress_api_enabled": false,
