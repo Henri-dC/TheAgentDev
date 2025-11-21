@@ -44,7 +44,8 @@ def inject_services(
     )
     init_project_services(
         workspace_svc=workspace_svc, 
-        process_svc=process_svc
+        process_svc=process_svc,
+        git_svc=git_svc
     )
     init_settings_services(
         process_service=process_svc,

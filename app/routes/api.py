@@ -229,8 +229,9 @@ def propose_changes():
             time.sleep(1)
             _process_service.start_backend_server(config.paths.backend_dev_path, config.servers.backend_port)
         
-        if dev_files_modified:
-            logger.info("Fichiers dev modifiés, redémarrage du serveur...")
+        # Redémarrer le serveur dev si des fichiers ont été modifiés OU si npm install a été exécuté
+        if dev_files_modified or npm_install_required['dev']:
+            logger.info("Fichiers dev modifiés ou npm install exécuté, redémarrage du serveur...")
             _process_service.stop_dev_server()
             time.sleep(2)
             _process_service.start_dev_server(config.paths.dev_path, config.servers.dev_port)
@@ -262,6 +263,7 @@ def approve_changes():
     dev_path = config.paths.dev_path
     prod_path = config.paths.prod_path
     branch_name = config.project.branch_name
+    repo_url = config.project.repository_url
     
     _process_service.stop_dev_server()
     
@@ -274,12 +276,36 @@ def approve_changes():
         if not prod_path:
             raise Exception('PROD_PATH non défini.')
         
-        # Synchroniser prod avec le remote avant de copier les changements
+        # --- Synchronisation PROD ---
         logger.info(f"Synchronisation de {prod_path} avec origin/{branch_name}...")
-        _git_service.checkout(prod_path, branch_name)
-        _git_service.fetch(prod_path)
-        _git_service.reset_hard(prod_path, f'origin/{branch_name}')
         
+        # S'assurer que le remote est bon
+        if repo_url:
+            _git_service.set_remote_url(prod_path, 'origin', repo_url)
+
+        # Fetch d'abord pour connaitre l'état du remote
+        _git_service.fetch(prod_path)
+        
+        # Vérifier si la branche existe localement
+        if not _git_service.branch_exists(prod_path, branch_name):
+            logger.info(f"Branche {branch_name} introuvable localement dans prod. Tentative de création...")
+            # Essayer de créer depuis origin/branch_name
+            result = _git_service.checkout(prod_path, branch_name) # Git checkout gère souvent la création auto si remote existe
+            if result.failed:
+                # Si échec (ex: pas de remote correspondant), créer une branche orpheline ou depuis HEAD
+                logger.warning(f"Checkout direct échoué. Création forcée de {branch_name}.")
+                _git_service.create_branch(prod_path, branch_name)
+                _git_service.checkout(prod_path, branch_name)
+        else:
+            _git_service.checkout(prod_path, branch_name)
+
+        # Reset hard pour s'aligner sur le remote (s'il existe)
+        try:
+            _git_service.reset_hard(prod_path, f'origin/{branch_name}')
+        except Exception:
+            logger.warning(f"Impossible de reset sur origin/{branch_name} (peut-être nouveau repo).")
+        
+        # --- Application des changements ---
         for rel_path in changed_files:
             src_path = dev_path / rel_path
             dst_path = prod_path / rel_path
@@ -294,9 +320,22 @@ def approve_changes():
             _git_service.commit(prod_path, "Approbation des changements de dev")
             _git_service.push(prod_path, 'origin', branch_name, set_upstream=True)
 
-        # Forcer la synchronisation du répertoire dev avec le remote
+        # --- Synchronisation DEV ---
         logger.info(f"Synchronisation du répertoire dev ({dev_path}) avec origin/{branch_name}...")
+        
+        if repo_url:
+            _git_service.set_remote_url(dev_path, 'origin', repo_url)
+            
         _git_service.fetch(dev_path)
+        
+        # Basculer dev sur la bonne branche si nécessaire
+        if not _git_service.branch_exists(dev_path, branch_name):
+             _git_service.create_branch(dev_path, branch_name)
+             
+        current_branch = _git_service.get_current_branch(dev_path)
+        if current_branch != branch_name:
+             _git_service.checkout(dev_path, branch_name)
+
         _git_service.reset_hard(dev_path, f'origin/{branch_name}')
         
         _process_service.start_dev_server(dev_path, config.servers.dev_port, force_clean=True)

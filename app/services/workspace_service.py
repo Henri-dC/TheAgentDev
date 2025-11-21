@@ -48,7 +48,10 @@ class WorkspaceService:
         dev_path = Path(get_config().paths.dev_path)
         dev_path.mkdir(parents=True, exist_ok=True)
         
-        if not any(dev_path.iterdir()):
+        # Check if directory is empty or only contains .git
+        is_empty_or_git_only = not any(item for item in dev_path.iterdir() if item.name != '.git')
+
+        if is_empty_or_git_only:
             self._create_new_frontend_project()
         else:
             logger.info("Workspace dev existe déjà")
@@ -410,7 +413,8 @@ app.get('/api/users', async (req, res) => {
         repo_url = config.project.repository_url
         workspaces = [
             ('dev', Path(config.paths.dev_path)),
-            ('backend_dev', Path(config.paths.backend_dev_path))
+            ('backend_dev', Path(config.paths.backend_dev_path)),
+            ('prod', Path(config.paths.prod_path)) # Ajouter le workspace prod ici
         ]
         
         for name, path in workspaces:
@@ -418,6 +422,9 @@ app.get('/api/users', async (req, res) => {
     
     def _setup_git_for_workspace(self, name: str, path: Path, repo_url: Optional[str]):
         """Configure Git pour un workspace spécifique."""
+        config = get_config()
+        
+        # Si le repo n'existe pas, on l'initialise
         if not self.git.is_git_repo(path):
             logger.info(f"Initialisation de Git pour {name}...")
             self.git.init(path)
@@ -425,7 +432,18 @@ app.get('/api/users', async (req, res) => {
             self.git.commit(path, "Initial commit", allow_empty=True)
             if repo_url:
                 self.git.add_remote(path, 'origin', repo_url)
+                # On tente un fetch, mais si le remote est vide, ça ne fera rien d'utile pour l'instant
+                self.git.fetch(path, 'origin')
         else:
             logger.info(f"Dépôt Git existant pour {name}")
-            if repo_url and self.git.get_remote_url(path, 'origin') != repo_url:
-                self.git.set_remote_url(path, 'origin', repo_url)
+            # Mise à jour du remote si nécessaire
+            current_remote_url = self.git.get_remote_url(path, 'origin')
+            if repo_url:
+                if current_remote_url != repo_url:
+                    logger.info(f"Mise à jour du remote origin pour {name}: {repo_url}")
+                    self.git.set_remote_url(path, 'origin', repo_url)
+                
+                self.git.fetch(path, 'origin')
+
+        # Note: On ne force pas le checkout ici pour éviter les erreurs si le remote est vide.
+        # L'utilisateur sera sur la branche master/main par défaut de l'init, ou sur sa branche courante.

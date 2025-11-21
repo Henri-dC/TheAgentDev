@@ -75,6 +75,8 @@ def save_settings():
         if not new_settings:
             return jsonify({'status': 'error', 'message': 'Aucune donnée fournie'}), 400
         
+        logger.info(f"Paramètres reçus pour sauvegarde : {new_settings}")
+
         config = get_config()
         
         # Mettre à jour la configuration

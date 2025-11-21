@@ -194,6 +194,53 @@ class GitService:
         logger.warning(f"Git clean -{flags} dans {path}")
         return run_command(f'git clean -{flags}', cwd=path)
 
+    def get_current_branch(self, path: Path) -> Optional[str]:
+        """
+        Récupère le nom de la branche courante.
+
+        Args:
+            path: Répertoire du dépôt
+
+        Returns:
+            Nom de la branche ou None
+        """
+        result = run_command('git rev-parse --abbrev-ref HEAD', cwd=path)
+        if result.success:
+            return result.stdout.strip()
+        return None
+
+    def branch_exists(self, path: Path, branch: str) -> bool:
+        """
+        Vérifie si une branche existe localement.
+
+        Args:
+            path: Répertoire du dépôt
+            branch: Nom de la branche
+
+        Returns:
+            True si elle existe, False sinon
+        """
+        result = run_command(f'git branch --list {branch}', cwd=path)
+        return bool(result.success and result.stdout.strip())
+
+    def create_branch(self, path: Path, branch: str, start_point: Optional[str] = None) -> CommandResult:
+        """
+        Crée une nouvelle branche.
+
+        Args:
+            path: Répertoire du dépôt
+            branch: Nom de la branche
+            start_point: Point de départ (optionnel)
+
+        Returns:
+            Résultat de la commande
+        """
+        cmd = f'git branch {branch}'
+        if start_point:
+            cmd += f' {start_point}'
+        logger.info(f"Création de la branche {branch} dans {path}")
+        return run_command(cmd, cwd=path)
+
     def stash(self, path: Path, message: str = "Gemini CLI temporary changes") -> CommandResult:
         """
         Met de côté les changements actuels.

@@ -1,9 +1,11 @@
 import os
 import json
+from pathlib import Path
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from config.settings import reload_config
 from app.services.workspace_service import WorkspaceService
 from app.services.process_service import ProcessService
+from app.services.git_service import GitService
 
 project_bp = Blueprint('project', __name__, url_prefix='/')
 
@@ -13,12 +15,14 @@ BASE_PROJECT_PATH = 'C:/Users/PC/VSC Dosss/Agent dev/'
 # Services
 _workspace_service: WorkspaceService = None
 _process_service: ProcessService = None
+_git_service: GitService = None
 
-def init_services(workspace_svc=None, process_svc=None):
+def init_services(workspace_svc=None, process_svc=None, git_svc=None):
     """Injecte les services nécessaires."""
-    global _workspace_service, _process_service
+    global _workspace_service, _process_service, _git_service
     _workspace_service = workspace_svc
     _process_service = process_svc
+    _git_service = git_svc
 
 
 def get_existing_projects():
@@ -97,6 +101,11 @@ def create_project():
         os.makedirs(f"{project_path}/dev")
         os.makedirs(f"{project_path}/prod")
         os.makedirs(f"{project_path}/backend_dev")
+
+        # Initialiser les dépôts Git
+        _git_service.init(Path(f"{project_path}/dev"))
+        _git_service.init(Path(f"{project_path}/prod"))
+        _git_service.init(Path(f"{project_path}/backend_dev"))
         
         # Mettre à jour la configuration sans démarrer
         with open(CONFIG_PATH, 'r+') as f:
