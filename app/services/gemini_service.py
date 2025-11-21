@@ -158,7 +158,13 @@ Règles critiques :
 - Le contenu (`content` ou `new_content`) doit être le contenu **intégral** du fichier.
 - Échappe correctement les caractères spéciaux dans les chaînes JSON (`\\\"`, `\\\\`, `\\n`).
 - Ta réponse ne doit contenir **QUE** le bloc JSON.
-- Tailwind doit être importé de cette manière : `@import "tailwindcss";`. N'utilisez JAMAIS l'ancienne syntaxe avec `@tailwind base;`.
+- Tailwind doit être importé de cette manière :
+  ```css
+  @tailwind base;
+  @tailwind components;
+  @tailwind utilities;
+  ```
+  N'utilisez JAMAIS la syntaxe `@import "tailwindcss";`.
 </json_format_instructions>
 """
 

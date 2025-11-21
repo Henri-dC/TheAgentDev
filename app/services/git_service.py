@@ -128,6 +128,12 @@ class GitService:
         all_files = set(modified_files + deleted_files + untracked_files)
         return list(all_files)
     
+    def is_empty_repo(self, path: Path) -> bool:
+        """
+        Vérifie si le dépôt est vide (aucun commit).
+        """
+        return run_command('git rev-parse HEAD', cwd=path).failed
+
     def checkout(self, path: Path, branch: str) -> CommandResult:
         """
         Change de branche.
@@ -140,6 +146,13 @@ class GitService:
             Résultat de la commande
         """
         logger.info(f"Git checkout {branch} dans {path}")
+        
+        # Si le repo est vide, on ne peut pas checkout une branche existante au sens classique
+        if self.is_empty_repo(path):
+            # Si on veut aller sur 'main' et qu'on est sur 'master' (défaut) ou autre
+            # On utilise checkout -b pour renommer la branche racine courante
+            return run_command(f'git checkout -b {branch}', cwd=path)
+            
         return run_command(f'git checkout {branch}', cwd=path, check=True)
 
     def fetch(self, path: Path, remote: str = 'origin') -> CommandResult:
@@ -154,7 +167,8 @@ class GitService:
             Résultat de la commande
         """
         logger.info(f"Git fetch {remote} dans {path}")
-        return run_command(f'git fetch {remote}', cwd=path, check=True)
+        # Fetch peut échouer si le remote est vide ou n'existe pas encore
+        return run_command(f'git fetch {remote}', cwd=path)
 
     def reset_hard(self, path: Path, target: Optional[str] = None) -> CommandResult:
         """
@@ -167,6 +181,10 @@ class GitService:
         Returns:
             Résultat de la commande
         """
+        if self.is_empty_repo(path):
+            logger.warning(f"Reset hard ignoré sur dépôt vide: {path}")
+            return CommandResult(True, "Skipped reset on empty repo", "")
+
         command = 'git reset --hard'
         if target:
             command += f' {target}'
@@ -207,6 +225,11 @@ class GitService:
         result = run_command('git rev-parse --abbrev-ref HEAD', cwd=path)
         if result.success:
             return result.stdout.strip()
+        # Cas dépôt vide (HEAD pointe vers refs/heads/main mais pas de commit)
+        # git symbolic-ref --short HEAD fonctionne souvent mieux
+        result = run_command('git symbolic-ref --short HEAD', cwd=path)
+        if result.success:
+            return result.stdout.strip()
         return None
 
     def branch_exists(self, path: Path, branch: str) -> bool:
@@ -235,9 +258,15 @@ class GitService:
         Returns:
             Résultat de la commande
         """
-        cmd = f'git branch {branch}'
         if start_point:
-            cmd += f' {start_point}'
+            cmd = f'git branch {branch} {start_point}'
+        else:
+            # Si pas de point de départ, et repo vide, checkout -b est nécessaire
+            if self.is_empty_repo(path):
+                logger.info(f"Dépôt vide, utilisation de checkout -b pour {branch}")
+                return run_command(f'git checkout -b {branch}', cwd=path)
+            cmd = f'git branch {branch}'
+            
         logger.info(f"Création de la branche {branch} dans {path}")
         return run_command(cmd, cwd=path)
 
@@ -252,6 +281,10 @@ class GitService:
         Returns:
             Résultat de la commande
         """
+        if self.is_empty_repo(path):
+            logger.info("Stash ignoré car le dépôt est vide (pas de HEAD).")
+            return CommandResult(True, "Skipped stash on empty repo", "")
+
         logger.info(f"Git stash dans {path} avec le message: {message}")
         return run_command(f'git stash save "{message}"', cwd=path)
 
