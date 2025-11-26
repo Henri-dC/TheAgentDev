@@ -417,6 +417,14 @@
               >
                 Approuver
               </button>
+              <button
+                type="button"
+                id="push-button"
+                class="btn btn-secondary"
+                title="Pousser les changements validés vers le dépôt distant"
+              >
+                💾 Push vers Repo
+              </button>
             </div>
             <div class="form-actions" style="margin-top: 0.5rem">
               <button
@@ -551,6 +559,7 @@
         // --- Logique de l'API ---
         const promptForm = document.getElementById('prompt-form');
         const approveBtn = document.getElementById('approve-button');
+        const pushBtn = document.getElementById('push-button');
         const rollbackBtn = document.getElementById('rollback-button');
         const indexProjectBtn = document.getElementById('index-project-btn');
         const exitBtn = document.getElementById('exit-button');
@@ -559,6 +568,7 @@
         const responseDiv = document.getElementById('response');
         const loader = document.getElementById('loader');
         const previewFrame = document.getElementById('preview-frame');
+        const promptText = document.getElementById('prompt-text');
 
         function toggleChangeButtons(show) {
             if (show) {
@@ -600,6 +610,14 @@
                 loader.style.display = 'none';
             }
         }
+        
+        // Soumettre le formulaire avec "Entrée" (sans Maj)
+        promptText.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                promptForm.dispatchEvent(new Event('submit'));
+            }
+        });
 
         promptForm.addEventListener('submit', e => {
             e.preventDefault();
@@ -613,6 +631,12 @@
         approveBtn.addEventListener('click', () => {
             if (confirm("Êtes-vous sûr de vouloir approuver et appliquer ces changements ?")) {
                 handleApiCall('/api/approve_changes', { method: 'POST' }, 'Changements Approuvés');
+            }
+        });
+
+        pushBtn.addEventListener('click', () => {
+            if (confirm("Voulez-vous pousser la version de PROD vers le dépôt distant ?")) {
+                handleApiCall('/api/push_changes', { method: 'POST' }, 'Push effectué');
             }
         });
 
@@ -720,6 +744,22 @@
                 alert(`Component "${componentType}" was dropped, but no specific target element was found.`);
             }
         });
+      // Masquer les messages flash après 4 secondes
+      document.addEventListener('DOMContentLoaded', () => {
+        const flashMessages = document.querySelector('.flash-messages');
+        if (flashMessages) {
+          setTimeout(() => {
+            flashMessages.style.transition = 'opacity 0.5s ease';
+            flashMessages.style.opacity = '0';
+            setTimeout(() => {
+              flashMessages.remove();
+            }, 500); // Attendre la fin de la transition
+          }, 4000); // 4 secondes
+        }
+
+        // Démarrage automatique des serveurs au chargement du projet
+        handleApiCall('/api/setup_and_start', { method: 'POST' }, 'Démarrage de l\'environnement...');
+      });
     </script>
 </body>
 </html>

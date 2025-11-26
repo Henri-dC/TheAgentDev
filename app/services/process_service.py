@@ -130,6 +130,36 @@ class ProcessService:
         except Exception as e:
             logger.error(f"Erreur inattendue lors de l'arrêt du processus PID={pid}: {e}")
     
+    def _kill_process_on_port(self, port: int):
+        """
+        Tue le processus qui écoute sur le port donné (Windows/Linux).
+        """
+        logger.info(f"Tentative de libération forcée du port {port}...")
+        try:
+            if os.name == 'nt':
+                # Windows : trouver le PID via netstat
+                # netstat -ano | findstr :<port>
+                result = subprocess.run(
+                    f'netstat -ano | findstr :{port}',
+                    shell=True, capture_output=True, text=True
+                )
+                if result.stdout:
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines:
+                        parts = line.split()
+                        # format: PROTO LocalAddress ForeignAddress State PID
+                        # Ex: TCP    0.0.0.0:5173           0.0.0.0:0              LISTENING       1234
+                        if len(parts) >= 5 and str(port) in parts[1]:
+                            pid = parts[-1]
+                            logger.info(f"Processus trouvé sur le port {port} : PID={pid}. Arrêt forcé...")
+                            subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True)
+            else:
+                # Linux/Unix : fuser ou lsof
+                subprocess.run(['fuser', '-k', f'{port}/tcp'], capture_output=True)
+                
+        except Exception as e:
+            logger.error(f"Erreur lors du kill sur le port {port}: {e}")
+
     def start_dev_server(
         self,
         project_path: Path,
@@ -140,37 +170,25 @@ class ProcessService:
     ) -> bool:
         """
         Démarre le serveur de développement Vite.
-        
-        Args:
-            project_path: Chemin du projet dev
-            port: Port du serveur
-            host: Hôte (généralement 127.0.0.1)
-            timeout: Timeout d'attente du démarrage
-            force_clean: Si True, force Vite à ré-optimiser les dépendances
-        
-        Returns:
-            True si le serveur a démarré, False sinon
         """
         with self._lock:
-            # Vérifier si déjà en cours
+            # Vérifier si le port est occupé
             if self.is_port_responsive(port):
-                logger.info(f"Serveur dev déjà actif sur le port {port}")
-                return True
+                # Si un nettoyage forcé est demandé, on tue tout ce qui bouge
+                if force_clean:
+                    logger.warning(f"Port {port} occupé. Nettoyage forcé demandé...")
+                    self._kill_process_on_port(port)
+                    time.sleep(1)
+                else:
+                    # Sinon, on suppose que c'est soit notre processus, soit un serveur lancé manuellement
+                    # par l'utilisateur (ce qui est le cas ici). On fait confiance et on se connecte dessus.
+                    logger.info(f"Un service répond déjà sur le port {port}. Utilisation du serveur existant (manuel ou interne).")
+                    return True
             
-            # Arrêter l'ancien processus si présent
+            # S'assurer que tout ancien processus suivi est bien mort
             if self._dev_process:
                 self._terminate_process(self._dev_process)
                 self._dev_process = None
-                
-                # Attendre que le port soit libéré
-                deadline = time.time() + 5  # Attendre jusqu'à 5 secondes
-                while time.time() < deadline:
-                    if not self.is_port_responsive(port):
-                        logger.info(f"Port {port} libéré.")
-                        break
-                    time.sleep(0.5)
-                else:
-                    logger.warning(f"Port {port} toujours actif après arrêt du serveur dev. Tentative de démarrage quand même.")
             
             # Démarrer le serveur
             command = f'npm run dev -- --host {host} --port {port}'
@@ -202,7 +220,13 @@ class ProcessService:
             if self._dev_process:
                 self._terminate_process(self._dev_process)
                 self._dev_process = None
-                logger.info("Serveur dev arrêté")
+            
+            # Sécurité supplémentaire : si le port répond toujours, on force le kill
+            # (Port par défaut Vite = 5173, ou lire depuis config si accessible, ici on suppose le port standard ou on l'ajoute en paramètre si besoin, 
+            # mais pour simplifier, stop_all appelle souvent stop_dev_server sans args)
+            # Idéalement, on devrait stocker le port utilisé.
+            # Pour l'instant, on suppose que stop_all ou le changement de projet va rappeler start_dev_server qui fera le ménage via _kill_process_on_port.
+            logger.info("Serveur dev arrêté (instance interne).")
     
     def start_backend_server(
         self,
@@ -212,22 +236,18 @@ class ProcessService:
     ) -> bool:
         """
         Démarre le serveur backend Node.js.
-        
-        Args:
-            project_path: Chemin du projet backend
-            port: Port du serveur
-            timeout: Timeout d'attente du démarrage
-        
-        Returns:
-            True si le serveur a démarré, False sinon
         """
         with self._lock:
-            # Vérifier si déjà en cours
+            # Même logique pour le backend
             if self.is_port_responsive(port):
-                logger.info(f"Serveur backend déjà actif sur le port {port}")
-                return True
+                if self._backend_process and self._backend_process.poll() is None:
+                    logger.info(f"Serveur backend déjà actif sur le port {port}")
+                    return True
+                
+                logger.warning(f"Port {port} (backend) occupé par un zombie. Nettoyage...")
+                self._kill_process_on_port(port)
+                time.sleep(1)
             
-            # Arrêter l'ancien processus si présent
             if self._backend_process:
                 self._terminate_process(self._backend_process)
                 self._backend_process = None

@@ -30,7 +30,7 @@ class GitService:
     
     def init(self, path: Path) -> CommandResult:
         """
-        Initialise un nouveau dépôt Git.
+        Initialise un nouveau dépôt Git et force la branche 'main'.
         
         Args:
             path: Répertoire où initialiser le dépôt
@@ -39,7 +39,11 @@ class GitService:
             Résultat de la commande
         """
         logger.info(f"Initialisation d'un dépôt Git dans {path}")
-        return run_command('git init', cwd=path)
+        result = run_command('git init', cwd=path)
+        if result.success:
+            # Forcer le nom de la branche par défaut à 'main' pour éviter 'master'
+            run_command('git branch -M main', cwd=path)
+        return result
     
     def add_all(self, path: Path) -> CommandResult:
         """
@@ -153,7 +157,7 @@ class GitService:
             # On utilise checkout -b pour renommer la branche racine courante
             return run_command(f'git checkout -b {branch}', cwd=path)
             
-        return run_command(f'git checkout {branch}', cwd=path, check=True)
+        return run_command(f'git checkout {branch}', cwd=path)
 
     def fetch(self, path: Path, remote: str = 'origin') -> CommandResult:
         """
@@ -183,7 +187,13 @@ class GitService:
         """
         if self.is_empty_repo(path):
             logger.warning(f"Reset hard ignoré sur dépôt vide: {path}")
-            return CommandResult(True, "Skipped reset on empty repo", "")
+            return CommandResult(
+                command="git reset --hard",
+                returncode=0,
+                stdout="Skipped reset on empty repo",
+                stderr="",
+                cwd=str(path)
+            )
 
         command = 'git reset --hard'
         if target:
@@ -283,7 +293,13 @@ class GitService:
         """
         if self.is_empty_repo(path):
             logger.info("Stash ignoré car le dépôt est vide (pas de HEAD).")
-            return CommandResult(True, "Skipped stash on empty repo", "")
+            return CommandResult(
+                command="git stash",
+                returncode=0,
+                stdout="Skipped stash on empty repo",
+                stderr="",
+                cwd=str(path)
+            )
 
         logger.info(f"Git stash dans {path} avec le message: {message}")
         return run_command(f'git stash save "{message}"', cwd=path)
@@ -403,7 +419,7 @@ class GitService:
         command = f'git pull {remote} {branch}'
         if allow_unrelated_histories:
             command += ' --allow-unrelated-histories'
-        return run_command(command, cwd=path, check=True)
+        return run_command(command, cwd=path)
     
     def push(
         self,
@@ -426,4 +442,4 @@ class GitService:
         """
         flag = '-u ' if set_upstream else ''
         logger.info(f"Git push {flag}{remote} {branch} depuis {path}")
-        return run_command(f'git push {flag}{remote} {branch}', cwd=path, check=True)
+        return run_command(f'git push {flag}{remote} {branch}', cwd=path)

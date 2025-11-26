@@ -93,7 +93,11 @@ class WorkspaceService:
         if temp_project_path.exists():
             for item in temp_project_path.iterdir():
                 shutil.move(str(item), str(dev_path / item.name))
-            temp_project_path.rmdir()
+            try:
+                temp_project_path.rmdir()
+            except OSError:
+                # Si le répertoire n'est pas vide, utiliser rmtree
+                shutil.rmtree(temp_project_path)
         else:
             raise Exception(f"Le projet Vue n\'a pas été créé dans {temp_project_path}")
         
@@ -102,6 +106,42 @@ class WorkspaceService:
         self.npm.install_tailwind_vue(dev_path)
         logger.info("Projet Vue créé avec succès")
     
+    def _clean_package_json(self, project_path: Path):
+        package_json_path = project_path / 'package.json'
+        if not package_json_path.exists():
+            logger.warning(f"package.json non trouvé dans {project_path}. Impossible de nettoyer les dépendances PostCSS.")
+            return
+
+        try:
+            with open(package_json_path, 'r+', encoding='utf-8') as f:
+                package_json_content = json.load(f)
+                
+                if 'devDependencies' in package_json_content:
+                    original_deps_keys = set(package_json_content['devDependencies'].keys())
+                    
+                    if 'postcss' in package_json_content['devDependencies']:
+                        del package_json_content['devDependencies']['postcss']
+                        logger.info(f"Supprimé 'postcss' de devDependencies dans {project_path}")
+                    if 'autoprefixer' in package_json_content['devDependencies']:
+                        del package_json_content['devDependencies']['autoprefixer']
+                        logger.info(f"Supprimé 'autoprefixer' de devDependencies dans {project_path}")
+                    
+                    # Supprimer également la clé 'postcss' si elle existe à la racine (config)
+                    if 'postcss' in package_json_content:
+                        del package_json_content['postcss']
+                        logger.info(f"Supprimé la configuration 'postcss' de package.json dans {project_path}")
+
+                    # Vérifier si des modifications ont été apportées avant d'écrire
+                    if original_deps_keys != set(package_json_content['devDependencies'].keys()) or 'postcss' not in package_json_content:
+                        f.seek(0)
+                        json.dump(package_json_content, f, indent=2)
+                        f.truncate()
+                        logger.info(f"package.json nettoyé dans {project_path}")
+
+        except (IOError, json.JSONDecodeError) as e:
+            logger.error(f"Erreur lors du nettoyage de package.json dans {project_path}: {e}")
+            raise
+
     def _create_react_project(self):
         """Crée un projet React avec Vite et Tailwind CSS."""
         dev_path = Path(get_config().paths.dev_path)
@@ -109,6 +149,9 @@ class WorkspaceService:
         result = self.npm.create_react_project(dev_path)
         if result.failed:
             raise Exception(f"Création du projet React échouée: {result.stderr}")
+        
+        # --- NOUVELLE ÉTAPE : Nettoyer package.json avant d'installer les dépendances globales ---
+        self._clean_package_json(dev_path)
         
         self._create_vite_config()
         

@@ -66,6 +66,7 @@ def index():
 def main_page():
     """Affiche la page principale de l'application (IDE)."""
     config = get_config()
+    logger.info(f"Chargement de la page principale. Projet actuel: {config.paths.dev_path}")
     project_name = Path(config.paths.dev_path).parent.name
     
     # Déterminer quels services d'IA sont actifs
@@ -133,8 +134,11 @@ def propose_changes():
     try:
         config = get_config()
         
-        # Sauvegarder l'état actuel avant les changements de l'IA
-        _git_service.stash(config.paths.dev_path)
+        # Sauvegarde préventive des changements locaux
+        try:
+             _git_service.stash(config.paths.dev_path, "Sauvegarde avant modification IA")
+        except Exception as e:
+             logger.warning(f"Impossible de stash les changements: {e}")
 
         # Sélectionner le service d'IA actif
         ai_service = None
@@ -236,8 +240,12 @@ def propose_changes():
             time.sleep(2)
             _process_service.start_dev_server(config.paths.dev_path, config.servers.dev_port)
         
-        # 6. Générer le diff
-        diff_result = _git_service.diff(config.paths.dev_path)
+        # 6. Diff (Tentative best-effort, sinon ignoré)
+        try:
+             # On tente quand même un diff pour l'affichage, si git est dispo
+             diff_result = _git_service.diff(config.paths.dev_path)
+        except Exception:
+             diff_result = None
         
         # 7. Préparer la réponse
         explanation = response.explanation
@@ -250,122 +258,138 @@ def propose_changes():
         logger.exception("Erreur lors du traitement de la requête")
         return jsonify({'error': str(e)}), 500
 
-# ... (le reste des routes reste inchangé) ...
 
 @api_bp.route('/api/approve_changes', methods=['POST'])
 def approve_changes():
     """
-    Approuve les changements: copie dev → prod et push.
+    Approuve les changements: Copie simple de dev vers prod (SANS Git).
     """
-    logger.info("Approbation des changements...")
+    logger.info("Approbation des changements (Mode Copie Simple)...")
     
     config = get_config()
     dev_path = config.paths.dev_path
     prod_path = config.paths.prod_path
-    branch_name = config.project.branch_name
-    repo_url = config.project.repository_url
     
     _process_service.stop_dev_server()
     
     try:
-        if not _git_service.status(dev_path).stdout.strip():
-            _process_service.start_dev_server(dev_path, config.servers.dev_port)
-            return jsonify({'message': 'Aucun changement à approuver.'})
-        
-        changed_files = _git_service.get_changed_files(dev_path)
         if not prod_path:
             raise Exception('PROD_PATH non défini.')
-        
-        # --- Synchronisation PROD ---
-        logger.info(f"Synchronisation de {prod_path} avec origin/{branch_name}...")
-        
-        # S'assurer que le remote est bon
-        if repo_url:
-            _git_service.set_remote_url(prod_path, 'origin', repo_url)
 
-        # Fetch d'abord pour connaitre l'état du remote
-        _git_service.fetch(prod_path)
-        
-        # Vérifier si la branche existe localement
-        if not _git_service.branch_exists(prod_path, branch_name):
-            logger.info(f"Branche {branch_name} introuvable localement dans prod. Tentative de création...")
-            # Essayer de créer depuis origin/branch_name
-            result = _git_service.checkout(prod_path, branch_name) # Git checkout gère souvent la création auto si remote existe
-            if result.failed:
-                # Si échec (ex: pas de remote correspondant), créer une branche orpheline ou depuis HEAD
-                logger.warning(f"Checkout direct échoué. Création forcée de {branch_name}.")
-                _git_service.create_branch(prod_path, branch_name)
-                _git_service.checkout(prod_path, branch_name)
-        else:
-            _git_service.checkout(prod_path, branch_name)
+        # S'assurer que prod existe
+        if not prod_path.exists():
+            prod_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Création du dossier prod: {prod_path}")
 
-        # Reset hard pour s'aligner sur le remote (s'il existe)
-        try:
-            _git_service.reset_hard(prod_path, f'origin/{branch_name}')
-        except Exception:
-            logger.warning(f"Impossible de reset sur origin/{branch_name} (peut-être nouveau repo).")
+        # Liste des dossiers/fichiers à ignorer lors de la copie/nettoyage
+        # On ignore .git pour ne pas casser le repo s'il existe dans prod
+        # On ignore node_modules pour éviter de copier des milliers de fichiers (on fera npm install si besoin)
+        ignore_patterns = shutil.ignore_patterns('.git', 'node_modules', '.vite', '__pycache__', '.env', 'dist')
         
-        # --- Application des changements ---
-        for rel_path in changed_files:
-            src_path = dev_path / rel_path
-            dst_path = prod_path / rel_path
-            dst_path.parent.mkdir(parents=True, exist_ok=True)
-            if src_path.exists():
-                shutil.copy2(src_path, dst_path)
-            elif dst_path.exists():
-                dst_path.unlink()
+        # 1. Nettoyer prod (sauf .git et ce qu'on veut garder)
+        logger.info("Nettoyage du dossier prod...")
+        ignored_names = set(['.git', 'node_modules', '.vite', '__pycache__', '.env', 'dist'])
         
-        _git_service.add_all(prod_path)
-        if _git_service.status(prod_path).stdout.strip():
-            _git_service.commit(prod_path, "Approbation des changements de dev")
-            _git_service.push(prod_path, 'origin', branch_name, set_upstream=True)
-
-        # --- Synchronisation DEV ---
-        logger.info(f"Synchronisation du répertoire dev ({dev_path}) avec origin/{branch_name}...")
-        
-        if repo_url:
-            _git_service.set_remote_url(dev_path, 'origin', repo_url)
+        for item in prod_path.iterdir():
+            if item.name in ignored_names:
+                continue
             
-        _git_service.fetch(dev_path)
-        
-        # Basculer dev sur la bonne branche si nécessaire
-        if not _git_service.branch_exists(dev_path, branch_name):
-             _git_service.create_branch(dev_path, branch_name)
-             
-        current_branch = _git_service.get_current_branch(dev_path)
-        if current_branch != branch_name:
-             _git_service.checkout(dev_path, branch_name)
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            except Exception as e:
+                logger.warning(f"Impossible de supprimer {item}: {e}")
 
-        _git_service.reset_hard(dev_path, f'origin/{branch_name}')
+        # 2. Copier dev vers prod
+        logger.info("Copie des fichiers de dev vers prod...")
+        shutil.copytree(
+            dev_path, 
+            prod_path, 
+            dirs_exist_ok=True, 
+            ignore=ignore_patterns
+        )
         
-        _process_service.start_dev_server(dev_path, config.servers.dev_port, force_clean=True)
+        logger.info("Copie terminée.")
         
-        return jsonify({'message': 'Changements approuvés et appliqués à prod.'})
+        _process_service.start_dev_server(dev_path, config.servers.dev_port)
+        return jsonify({'message': 'Changements approuvés et copiés vers prod.'})
 
-    except GitError as e:
-        logger.error(f"Erreur Git lors de l'approbation: {e.stderr}")
-        _process_service.start_dev_server(config.paths.dev_path, config.servers.dev_port)
-        # Renvoyer un message d'erreur détaillé au frontend
-        error_details = f"Une erreur Git est survenue:\n{e.stderr}"
-        return jsonify({'error': error_details}), 500
-    
     except Exception as e:
-        logger.exception("Erreur lors de l'approbation")
+        logger.exception("Erreur lors de l'approbation (copie)")
         _process_service.start_dev_server(config.paths.dev_path, config.servers.dev_port)
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/api/push_changes', methods=['POST'])
+def push_changes():
+    """
+    Déclenche un Git Push manuel depuis le dossier PROD.
+    """
+    logger.info("Push manuel demandé...")
+    config = get_config()
+    prod_path = config.paths.prod_path
+    target_branch = config.project.branch_name # Généralement 'main'
+    
+    try:
+        if not _git_service.is_git_repo(prod_path):
+            return jsonify({'error': "Le dossier de production n'est pas un dépôt Git."}), 400
+            
+        # AUTO-CORRECTION : Vérifier la branche courante
+        current_branch = _git_service.get_current_branch(prod_path)
+        logger.info(f"Branche courante: {current_branch}, Cible: {target_branch}")
+
+        if current_branch == 'master' and target_branch != 'master':
+            logger.warning(f"Branche 'master' détectée. Renommage automatique vers '{target_branch}'...")
+            from app.utils.shell import run_command
+            run_command(f'git branch -M {target_branch}', cwd=prod_path)
+            current_branch = target_branch
+
+        logger.info("Exécution de git add .")
+        add_res = _git_service.add_all(prod_path)
+        if add_res.failed:
+             return jsonify({'error': f"Erreur git add: {add_res.stderr}"}), 500
+        
+        logger.info("Exécution de git commit")
+        # On allow_empty au cas où rien n'a changé mais l'utilisateur veut quand même push
+        commit_res = _git_service.commit(prod_path, "Mise à jour via Gemini CLI (Push Manuel)", allow_empty=True)
+        if commit_res.failed:
+             return jsonify({'error': f"Erreur git commit: {commit_res.stderr}"}), 500
+        
+        # Check remote presence
+        if not _git_service.get_remote_url(prod_path, 'origin'):
+             return jsonify({'error': "Aucun remote 'origin' n'est configuré sur le dossier de production."}), 400
+
+        logger.info(f"Exécution de git push origin {target_branch}")
+        # On utilise set_upstream=True pour être sûr
+        result = _git_service.push(prod_path, 'origin', target_branch, set_upstream=True)
+        
+        if result.failed:
+             return jsonify({'error': f"Erreur lors du push:\n{result.stderr}"}), 500
+             
+        return jsonify({'message': 'Push réussi vers le dépôt distant.'})
+
+    except Exception as e:
+        logger.exception("Erreur lors du push manuel")
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/api/rollback_changes', methods=['POST'])
 def rollback_changes():
-    """Annule les changements locaux dans dev."""
+    """Annule les changements locaux dans dev (Hard Reset + Clean)."""
+    config = get_config()
     try:
-        config = get_config()
-        dev_path = config.paths.dev_path
-        logger.info("Rollback des changements dans dev...")
-        _git_service.reset_hard(dev_path)
-        _git_service.clean(dev_path, force=True, directories=True)
-        _process_service.start_dev_server(dev_path, config.servers.dev_port, force_clean=True)
-        return jsonify({'message': 'Dev réinitialisé avec succès.'})
+        logger.info("Rollback demandé...")
+        _git_service.reset_hard(config.paths.dev_path)
+        _git_service.clean(config.paths.dev_path)
+        
+        # On redémarre le serveur pour être sûr que tout est propre
+        _process_service.stop_dev_server()
+        time.sleep(1)
+        _process_service.start_dev_server(config.paths.dev_path, config.servers.dev_port)
+        
+        return jsonify({'message': 'Changements annulés avec succès.'})
     except Exception as e:
         logger.exception("Erreur lors du rollback")
         return jsonify({'error': str(e)}), 500
@@ -373,35 +397,44 @@ def rollback_changes():
 
 @api_bp.route('/api/undo_change', methods=['POST'])
 def undo_change():
-    """Annule la dernière modification de l'IA en restaurant le stash."""
+    """Annule la dernière modification de l'IA (Restore stash)."""
+    config = get_config()
     try:
-        config = get_config()
-        dev_path = config.paths.dev_path
-        logger.info("Annulation de la dernière modification de l'IA...")
-        _git_service.stash_pop(dev_path)
+        logger.info("Undo demandé (Stash Pop)...")
+        # 1. On nettoie l'état actuel (qui est "mauvais" selon l'utilisateur)
+        _git_service.reset_hard(config.paths.dev_path)
+        _git_service.clean(config.paths.dev_path)
+        
+        # 2. On restaure l'état sauvegardé
+        res = _git_service.stash_pop(config.paths.dev_path)
+        if res.failed:
+             return jsonify({'error': f"Impossible d'annuler (stash pop failed): {res.stderr}"}), 500
+        
+        # Redémarrage serveur
         _process_service.stop_dev_server()
-        time.sleep(2)
-        _process_service.start_dev_server(dev_path, config.servers.dev_port)
-        return jsonify({'message': 'Modification annulée avec succès.'})
+        time.sleep(1)
+        _process_service.start_dev_server(config.paths.dev_path, config.servers.dev_port)
+             
+        return jsonify({'message': 'Dernière modification annulée.'})
     except Exception as e:
-        logger.exception("Erreur lors de l'annulation de la modification")
+        logger.exception("Erreur lors du Undo")
         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/api/confirm_change', methods=['POST'])
 def confirm_change():
-    """Confirme la dernière modification de l'IA en supprimant le stash."""
+    """Confirme la dernière modification de l'IA (Drop stash)."""
+    config = get_config()
     try:
-        config = get_config()
-        dev_path = config.paths.dev_path
-        logger.info("Confirmation de la dernière modification de l'IA...")
-        _git_service.stash_drop(dev_path)
-        _process_service.stop_dev_server()
-        time.sleep(2)
-        _process_service.start_dev_server(dev_path, config.servers.dev_port)
-        return jsonify({'message': 'Modification confirmée avec succès.'})
+        logger.info("Confirmation des changements (Drop Stash)...")
+        res = _git_service.stash_drop(config.paths.dev_path)
+        # On ne bloque pas si le drop échoue (ça veut juste dire qu'il n'y avait rien à drop ou erreur mineure)
+        if res.failed:
+            logger.warning(f"Stash drop failed: {res.stderr}")
+            
+        return jsonify({'message': 'Changements confirmés.'})
     except Exception as e:
-        logger.exception("Erreur lors de la confirmation de la modification")
+        logger.exception("Erreur lors du Confirm")
         return jsonify({'error': str(e)}), 500
 
 

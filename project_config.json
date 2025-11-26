@@ -1,9 +1,9 @@
 {
     "repository_url": "https://github.com/Henri-dC/tewt.git",
-    "dev_path": "C:/Users/PC/VSC Dosss/Agent dev/Retour/dev",
-    "prod_path": "C:/Users/PC/VSC Dosss/Agent dev/Retour/prod",
-    "backend_dev_path": "C:/Users/PC/VSC Dosss/Agent dev/Retour/backend_dev",
-    "frontend_framework": "react",
+    "dev_path": "C:/Users/PC/VSC Dosss/Agent dev/vue4/dev",
+    "prod_path": "C:/Users/PC/VSC Dosss/Agent dev/vue4/prod",
+    "backend_dev_path": "C:/Users/PC/VSC Dosss/Agent dev/vue4/backend_dev",
+    "frontend_framework": "vue",
     "branch_name": "main",
     "wordpress_api_enabled": false,
     "enable_database": false,

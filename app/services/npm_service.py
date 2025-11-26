@@ -155,58 +155,87 @@ class NpmService:
             timeout=60
         )
     
-    def install_tailwind_react(self, path) -> CommandResult:
+    def install_tailwind_react(self, path: Path) -> CommandResult:
         """
-        Installe et configure Tailwind CSS (v3 standard) pour un projet React.
+        Installe et configure Tailwind CSS v4 pour un projet React avec Vite.
         """
-        logger.info(f"Installation de Tailwind CSS (v3 standard) pour React dans {path}...")
+        logger.info(f"Installation de Tailwind CSS v4 pour React dans {path}...")
         
-        # 1. Installer les dépendances (tailwindcss, postcss, autoprefixer)
-        result = run_command('npm install -D tailwindcss postcss autoprefixer', cwd=path)
+        # 1. Nettoyage et Installation des dépendances v4
+        # On supprime explicitement les dépendances v3/v4 conflictuelles avant d'installer
+        run_command('npm uninstall tailwindcss postcss autoprefixer @tailwindcss/postcss', cwd=path)
+        
+        # Sécurité : On verrouille sur la version 4.x (^4) pour éviter que la v5 ne casse tout dans le futur
+        result = run_command('npm install tailwindcss@^4 @tailwindcss/vite@^4', cwd=path)
         if result.failed:
-            raise Exception(f"Échec de l'installation des dépendances Tailwind: {result.stderr}")
+            raise Exception(f"Échec de l'installation de Tailwind v4: {result.stderr}")
         
-        # 2. Initialiser Tailwind (crée tailwind.config.js et postcss.config.js)
-        result = run_command('npx tailwindcss init -p', cwd=path)
-        if result.failed:
-            raise Exception(f"Échec de l'initialisation de Tailwind: {result.stderr}")
+        # 2. Configurer vite.config.js (RÉÉCRITURE TOTALE pour éviter les erreurs de patching)
+        vite_config_path = path / 'vite.config.js'
         
-        # 3. Configurer tailwind.config.js (ESM pour Vite)
-        tailwind_config_content = """/** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}"""
-        try:
-            with open(path / 'tailwind.config.js', 'w', encoding='utf-8') as f:
-                f.write(tailwind_config_content)
-            logger.info("tailwind.config.js mis à jour.")
-        except IOError as e:
-            raise Exception(f"Impossible d'écrire tailwind.config.js: {e}")
+        vite_config_content = """import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
-        # 4. Mettre à jour src/index.css avec les directives @tailwind
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [
+    tailwindcss(),
+    react()
+  ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
+})
+"""
+        try:
+            vite_config_path.write_text(vite_config_content, encoding='utf-8')
+            logger.info("vite.config.js réécrit entièrement avec le plugin Tailwind.")
+        except Exception as e:
+             raise Exception(f"Impossible d'écrire vite.config.js: {e}")
+
+        # 3. Mettre à jour src/index.css avec la nouvelle syntaxe v4
         index_css_path = path / 'src' / 'index.css'
         if not index_css_path.parent.exists():
             index_css_path.parent.mkdir(parents=True, exist_ok=True)
         
-        tailwind_directives = """@tailwind base;
-@tailwind components;
-@tailwind utilities;
+        tailwind_directives = """@import "tailwindcss";
 
-/* Ajoutez votre CSS personnalisé ici */
+/* Tailwind CSS v4 Config */
 """
         try:
             with open(index_css_path, 'w', encoding='utf-8') as f:
                 f.write(tailwind_directives)
-            logger.info("Directives @tailwind ajoutées à src/index.css.")
+            logger.info("Directives @import ajoutées à src/index.css.")
         except IOError as e:
             raise Exception(f"Impossible d'écrire dans src/index.css: {e}")
+        
+        # 4. Supprimer les anciens fichiers de configuration s'ils existent
+        for config_file in ['postcss.config.js', 'tailwind.config.js', 'postcss.config.cjs', 'tailwind.config.cjs']:
+            file_to_remove = path / config_file
+            if file_to_remove.exists():
+                file_to_remove.unlink()
+                logger.info(f"{config_file} supprimé (inutile en v4).")
+
+        # 5. NETTOYAGE FINAL RADICAL
+        # Supprimer le cache de Vite pour forcer la prise en compte de la nouvelle config
+        vite_cache = path / 'node_modules' / '.vite'
+        if vite_cache.exists():
+            import shutil
+            try:
+                shutil.rmtree(vite_cache)
+                logger.info("Cache Vite (node_modules/.vite) supprimé pour éviter les conflits.")
+            except Exception as e:
+                logger.warning(f"Impossible de supprimer le cache Vite: {e}")
+
+        # Désinstaller une dernière fois postcss et autoprefixer pour être sûr à 100%
+        run_command('npm uninstall postcss autoprefixer', cwd=path)
         
         return result
     
@@ -217,14 +246,23 @@ export default {
         logger.info(f"Installation de Tailwind CSS (v3 standard) pour Vue dans {path}...")
         
         # 1. Installer les dépendances
-        result = run_command('npm install -D tailwindcss postcss autoprefixer', cwd=path)
+        result = run_command('npm install -D tailwindcss@3 postcss autoprefixer', cwd=path)
         if result.failed:
             raise Exception(f"Échec de l'installation de Tailwind: {result.stderr}")
         
-        # 2. Initialiser Tailwind
-        result = run_command('npx tailwindcss init -p', cwd=path)
-        if result.failed:
-            raise Exception(f"Échec de l'initialisation de Tailwind: {result.stderr}")
+        # 2. Créer postcss.config.js (manuellement)
+        postcss_config_content = """export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}"""
+        try:
+            with open(path / 'postcss.config.js', 'w', encoding='utf-8') as f:
+                f.write(postcss_config_content)
+            logger.info("postcss.config.js créé.")
+        except IOError as e:
+            raise Exception(f"Impossible d'écrire postcss.config.js: {e}")
         
         # 3. Configurer tailwind.config.js
         tailwind_config_content = """/** @type {import('tailwindcss').Config} */
@@ -241,7 +279,7 @@ export default {
         try:
             with open(path / 'tailwind.config.js', 'w', encoding='utf-8') as f:
                 f.write(tailwind_config_content)
-            logger.info("tailwind.config.js mis à jour.")
+            logger.info("tailwind.config.js créé.")
         except IOError as e:
             raise Exception(f"Impossible d'écrire tailwind.config.js: {e}")
         

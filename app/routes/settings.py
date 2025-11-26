@@ -129,6 +129,9 @@ def start_project():
     try:
         app_config = get_config()
         
+        # Arrêter les serveurs existants par sécurité
+        process_svc.stop_all()
+        
         # Configurer et démarrer les services
         workspace_svc.setup_all()
         process_svc.start_dev_server(

@@ -145,6 +145,9 @@ Règles critiques :
 - Le contenu (`content` ou `new_content`) doit être le contenu **intégral** du fichier.
 - Échappe correctement les caractères spéciaux dans les chaînes JSON (`\"`, `\\`, `\n`).
 - Ta réponse ne doit contenir **QUE** le bloc JSON, sans texte ou formatage supplémentaire.
+- **Tailwind CSS v4** est utilisé pour les projets React :
+  - Utilisez la syntaxe `@import "tailwindcss";` dans le CSS principal.
+  - La configuration du thème se fait via des variables CSS ou le bloc `@theme` dans le CSS, PAS dans `tailwind.config.js`.
 </instructions>
 """
 

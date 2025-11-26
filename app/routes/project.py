@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, make_response
 from config.settings import reload_config
 from app.services.workspace_service import WorkspaceService
 from app.services.process_service import ProcessService
@@ -39,7 +39,11 @@ def get_existing_projects():
 def project_selection():
     """Affiche la page de sélection et de création de projet."""
     projects = get_existing_projects()
-    return render_template('project_selection.html', projects=projects)
+    response = make_response(render_template('project_selection.html', projects=projects))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @project_bp.route('/reset', methods=['GET'])
 def reset_project():
@@ -59,6 +63,9 @@ def select_project():
         return redirect(url_for('project.project_selection'))
 
     try:
+        # Arrêter tous les processus en cours avant de changer de projet
+        _process_service.stop_all()
+        
         # Mettre à jour la configuration sans démarrer
         project_path = os.path.join(BASE_PROJECT_PATH, project_name).replace('\\\\', '/')
         with open(CONFIG_PATH, 'r+') as f:
@@ -76,7 +83,7 @@ def select_project():
         from app.services.chroma_service import init_chroma_service
         init_chroma_service(project_name)
 
-        return redirect(url_for('settings.settings_page'))
+        return redirect(url_for('api.main_page'))
 
     except Exception as e:
         flash(f"Erreur lors de la sélection du projet : {e}", 'error')
@@ -97,6 +104,9 @@ def create_project():
         return redirect(url_for('project.project_selection'))
 
     try:
+        # Arrêter tous les processus en cours
+        _process_service.stop_all()
+
         os.makedirs(project_path)
         os.makedirs(f"{project_path}/dev")
         os.makedirs(f"{project_path}/prod")

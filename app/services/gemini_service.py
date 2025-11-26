@@ -153,18 +153,15 @@ Opérations valides:
 3. `DELETE`: {{"action": "DELETE", "file_path": "dev/src/old.js"}}
 4. `RUN_SHELL_COMMAND`: {{"action": "RUN_SHELL_COMMAND", "command": "npm install axios", "cwd": "dev/"}}
 
-Règles critiques :
 - `file_path` doit être préfixé par 'dev/' ou 'backend_dev/'.
 - Le contenu (`content` ou `new_content`) doit être le contenu **intégral** du fichier.
-- Échappe correctement les caractères spéciaux dans les chaînes JSON (`\\\"`, `\\\\`, `\\n`).
+- Échappe correctement les caractères spéciaux dans les chaînes JSON (`"`, `\`, `
+`).
 - Ta réponse ne doit contenir **QUE** le bloc JSON.
-- Tailwind doit être importé de cette manière :
-  ```css
-  @tailwind base;
-  @tailwind components;
-  @tailwind utilities;
-  ```
-  N'utilisez JAMAIS la syntaxe `@import "tailwindcss";`.
+- **Tailwind CSS v4** est utilisé pour les projets React :
+  - Utilisez la syntaxe `@import "tailwindcss";` dans le CSS principal.
+  - La configuration du thème se fait via des variables CSS ou le bloc `@theme` dans le CSS, PAS dans `tailwind.config.js`.
+- **Pour Vue.js + Tailwind CSS** : N'utilisez JAMAIS `@import 'tailwindcss';`. Utilisez les directives standards : `@tailwind base; @tailwind components; @tailwind utilities;` dans votre fichier CSS principal. Assurez-vous que `postcss.config.js` est présent et configuré standardement.
 </json_format_instructions>
 """
 
